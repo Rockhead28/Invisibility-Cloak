@@ -1,0 +1,121 @@
+import cv2
+import numpy as np
+import time
+
+def show_message(message, duration=2):
+    msg_window = np.zeros((100, 500, 3), dtype=np.uint8)
+    cv2.putText(msg_window, message, (10, 60), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.imshow('Message', msg_window)
+    cv2.waitKey(duration * 1000)
+    cv2.destroyWindow('Message')
+
+def capture_background(cap):
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            show_message("Error: Unable to capture video.")
+            return None
+            
+        # Add text instructions on the frame
+        text_frame = frame.copy()
+        cv2.putText(text_frame, "Press 'c' to capture background", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.imshow('Capture Background', text_frame)
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('c'):
+            show_message("Capturing in 2 seconds... Stand back!")
+            time.sleep(2)  # 2-second delay
+            ret, background = cap.read()
+            if ret:
+                show_message("Background captured successfully!")
+                cv2.destroyWindow('Capture Background')
+                return background
+            else:
+                show_message("Failed to capture background!")
+                return None
+        elif key == ord('q'):
+            return None
+
+# Load the Haar Cascade for face detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Start video capture
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    show_message("Error: Unable to access the camera.")
+    cap.release()
+    exit()
+
+# Capture background interactively
+background = capture_background(cap)
+if background is None:
+    cap.release()
+    cv2.destroyAllWindows()
+    exit()
+
+# Define the color range to mask (purple). Increase the range if want to capture extreme shades of purple closer to blue or black
+lower_purple = np.array([120, 50, 50])     # Lower bound of purple in HSV
+upper_purple = np.array([170, 255, 255])   # Upper bound of purple in HSV
+
+show_message("Hold up the purple cloth and press 'q' to quit")
+
+try:
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        
+        if not ret:
+            show_message("Error: Unable to capture video.")
+            break
+            
+        # Convert the frame to HSV color space
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # Create a mask for the selected color range
+        mask = cv2.inRange(hsv, lower_purple, upper_purple)
+        
+        # Add some noise reduction
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8), iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, np.ones((3,3), np.uint8), iterations=1)
+        
+        # Invert the mask
+        mask_inv = cv2.bitwise_not(mask)
+        
+        # Extract the non-purple parts
+        fg = cv2.bitwise_and(frame, frame, mask=mask_inv)
+        
+        # Extract the background using the mask
+        bg = cv2.bitwise_and(background, background, mask=mask)
+        
+        # Combine foreground and background
+        final_output = cv2.add(fg, bg)
+        
+        # Add text instructions on the frame
+        cv2.putText(final_output, "Press 'q' to quit", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Detect faces (optional)
+        faces = face_cascade.detectMultiScale(cv2.cvtColor(final_output, cv2.COLOR_BGR2GRAY),
+                                           scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        
+        # Draw rectangles around detected faces
+        for (x, y, w, h) in faces:
+            cv2.rectangle(final_output, (x, y), (x + w, y + h), (255, 0, 0), 2)
+        
+        # Display the result
+        cv2.imshow('Invisibility Cloak', final_output)
+        
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+            
+except KeyboardInterrupt:
+    show_message("Stopped by user.")
+finally:
+    # Release resources
+    cap.release()
+    cv2.destroyAllWindows()
+    show_message("Camera released and windows closed.", 1)
